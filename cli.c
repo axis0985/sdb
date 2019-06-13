@@ -47,6 +47,8 @@ void start_cli() {
             run();
         }else if (strncmp(cmd, "cont", 4) == 0 || strncmp(cmd, "c", 1) == 0){
             cont();
+        } else if (strncmp(cmd, "si", 2) == 0) {
+            si();
         } else if (strncmp(cmd, "pid", 3) == 0) {
             printf("child process = %d\n", sdb_t.p);
         } else {

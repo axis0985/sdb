@@ -63,3 +63,41 @@ void cont() {
     ptrace(PTRACE_CONT, sdb_t.p, 0, 0);
     waitpid(sdb_t.p, &status, 0);
 }
+
+void si() {
+    int status;
+    if (sdb_t.p <0 ) {
+        fprintf(stderr, "Start before cont\n");
+        return;
+    }
+    ptrace(PTRACE_SINGLESTEP, sdb_t.p, 0 ,0);
+    waitpid(sdb_t.p, &status, 0);
+}
+
+//for breakpoints
+breakpoint* new_breakpoint(pid_t pid, void* addr) {
+  breakpoint* b = malloc(sizeof(breakpoint));
+  b->pid = pid;
+  b->addr = addr;
+  b->enabled = 0;
+  b->data = 0;
+  return b;
+}
+
+void enable(breakpoint* b) {
+    long data = ptrace(PTRACE_PEEKDATA, b->pid, b->addr, 0);
+    b->data = data & 0xff;
+    uint64_t int3 = 0xcc;
+    uint64_t data_with_int3 = ((data & ~0xff) | int3);
+    ptrace(PTRACE_POKEDATA, b->pid, b->addr, data_with_int3);
+
+    b->enabled = 1;
+}
+
+void disable(breakpoint* b) {
+    long data = ptrace(PTRACE_PEEKDATA, b->pid, b->addr, 0);
+    long restored = ((data & ~0xff) | b->data);
+    ptrace(PTRACE_POKEDATA, b->pid, b->addr, restored);
+
+    b->enabled = 0;
+}
