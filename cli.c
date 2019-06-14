@@ -35,7 +35,27 @@ void start_cli() {
             }
         } else if (strncmp(cmd, "break", 5) == 0 || strncmp(cmd, "b", 1) == 0 ) {
             if ( arg_start != arg_idx) {
-                load(CMD_ARG);
+                breakp(CMD_ARG);
+            } else {
+                printf("too few argument\n");
+            }
+        } else  if (strncmp(cmd, "get", 3) == 0) {
+            if ( arg_start != arg_idx) {
+                get_reg(CMD_ARG);
+            } else {
+                printf("too few argument\n");
+            }
+        } else if (strncmp(cmd, "set", 3) == 0 ) {
+            if ( arg_start != arg_idx) {
+                char *args[2];
+                int i; //third args start
+                for (i=0; i < 2 ;i++ ) 
+                    args [i] = malloc(32*sizeof(char));
+                for (i =0 ; *(cmd+cmd_idx+arg_start+i) !=' ' && (cmd_idx + arg_start + i ) < MAX_PROMT; i++);
+                strncpy(args[0], cmd+cmd_idx+arg_start, i);
+                for (; *(cmd+cmd_idx+arg_start+i) == ' ' && (cmd_idx + arg_start + i ) < MAX_PROMT; i++);
+                strcpy(args[1], cmd+cmd_idx+arg_start+i);
+                set_reg(args[0], args[1]);
             } else {
                 printf("too few argument\n");
             }
