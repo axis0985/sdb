@@ -2,7 +2,6 @@
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
-#include <sys/wait.h>
 #include <sys/user.h>
 
 void errquit(const char *msg) {
@@ -26,15 +25,16 @@ void load(char *program) {
 
 void start() {
     // free breakpoints
-    int i;
-    for (i =0; i < sdb_t.n_breakpoints; i++) free(sdb_t.breakpoints[i]);
-    sdb_t.breakpoints = NULL;
-    sdb_t.n_breakpoints = 0;
+    // int i;
+    // for (i =0; i < sdb_t.n_breakpoints; i++) free(sdb_t.breakpoints[i]);
+    // sdb_t.breakpoints = NULL;
+    // sdb_t.n_breakpoints = 0;
     //
     pid_t pid ;
     if ((pid = fork()) <0 ) errquit("fork");
     if(pid == 0) {
         //child
+        int status;
         if (ptrace(PTRACE_TRACEME) < 0) errquit("ptrace");
         execl(sdb_t.p_name, "", NULL);
         errquit("execl");
@@ -77,6 +77,9 @@ void run() {
             }
         }
     }
+    if (WIFEXITED(status)) {
+        fprintf(stderr, "** child process %d terminated normally (code 0)\n", sdb_t.p);
+    }
 }
 
 void cont() {
@@ -116,6 +119,9 @@ void cont() {
                 fprintf(stderr, "** breakpoint @ %lx\n", get_register_value(rip)-1);
             }
         }
+    } 
+    if (WIFEXITED(status)) {
+        fprintf(stderr, "** child process %d terminated normally (code 0)\n", sdb_t.p);
     }
 }
 
@@ -167,6 +173,26 @@ void disable(breakpoint* b) {
     ptrace(PTRACE_POKEDATA, b->pid, b->addr, restored);
 
     b->enabled = 0;
+}
+
+void list_breakpoints() {
+    int i ;
+    for (i = 0; i < sdb_t.n_breakpoints; i++) {
+        fprintf(stderr, "%d: %p \n",i,sdb_t.breakpoints[i]->addr); 
+    }
+}
+
+void delete_breakpoint(int idx) {
+    if (idx >= sdb_t.n_breakpoints--) {
+        fprintf(stderr, "Delete what?\n");
+        return;
+    }
+    disable(sdb_t.breakpoints[idx]);
+    free(sdb_t.breakpoints[idx]);
+    int i;
+    for (i= idx ; i<sdb_t.n_breakpoints;i++) {
+        sdb_t.breakpoints[i] = sdb_t.breakpoints[i+1];
+    }
 }
 
 //regs
@@ -359,4 +385,12 @@ void get_reg(char* reg_name) {
     reg r = get_register_from_name(reg_name)->r;
     uint64_t val = get_register_value(r);
     fprintf(stderr, "%s = %ld(0x%lx)\n", reg_name, val, val);
+}
+
+void get_all_regs() {
+    int i;
+    for (i = 0 ; i < n_registers; i++ ) {
+        uint64_t val = get_register_value(reg_descriptors[i].r);
+        fprintf(stderr, "%s = %ld(0x%lx)\n", reg_descriptors[i].name, val, val);
+    }
 }

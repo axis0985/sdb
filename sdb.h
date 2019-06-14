@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/ptrace.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 
 typedef struct {
     short enabled;
@@ -66,11 +67,14 @@ void deletep(char *addr);
 breakpoint* new_breakpoint(pid_t, void*);
 void enable(breakpoint*);
 void disable(breakpoint*);
+void list_breakpoints();
+void delete_breakpoint(int idx);
 
 //regs
 uint64_t get_register_value(reg r);
 void set_register_value(reg r,uint64_t val);
 void set_reg(char* reg_name, char* v);
 void get_reg(char* reg_name);
+void get_all_regs();
 
 #endif
