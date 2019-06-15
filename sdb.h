@@ -6,6 +6,10 @@
 #include <sys/ptrace.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <capstone/capstone.h>
+#include "elftool.h"
+
+#define PEEKSIZE 8
 
 typedef struct {
     short enabled;
@@ -14,12 +18,19 @@ typedef struct {
     void* addr;
 } breakpoint;
 
-struct _sdb_t {
+struct  {
     pid_t p; // current load process
     char* p_name;
     breakpoint** breakpoints;
     int n_breakpoints;
     short r_state; // running state
+    elf_handle_t *eh;
+    elf_strtab_t *tab;
+    long long text_addr;
+    long long text_offset;
+    long long text_size;
+    long long cur_disasm_addr; //current disasm address
+    long long text_base_addr; // base address for PIE
 } sdb_t;
 
 typedef enum {
@@ -56,14 +67,17 @@ typedef enum {
 void errquit(const char *msg);
 void init();
 void load(char *program);
-void start();
+void start(short should_print);
 void run();
 void cont();
 void si();
+void vmmap();
+
+// capstone related
+void disasm(char* addr);
 
 // for breakpoints
 void breakp(char *addr);
-void deletep(char *addr);
 breakpoint* new_breakpoint(pid_t, void*);
 void enable(breakpoint*);
 void disable(breakpoint*);

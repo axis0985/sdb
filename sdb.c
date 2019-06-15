@@ -14,22 +14,65 @@ void init() {
     sdb_t.breakpoints = NULL;
     sdb_t.n_breakpoints = 0;
     sdb_t.r_state = 0;
+    sdb_t.eh = NULL;
+    sdb_t.tab = NULL;
+    sdb_t.text_addr = 0;
+    sdb_t.text_offset = 0;
+    sdb_t.text_size = 0;
+    sdb_t.cur_disasm_addr =-1;
+    sdb_t.text_base_addr = 0;
+    elf_init();
 }
 
 void load(char *program) {
+    if ((sdb_t.eh = elf_open(program)) == NULL) {
+		fprintf(stderr, "** unabel to open '%s'.\n", program);
+		return;
+    }
+
+    if(elf_load_all(sdb_t.eh) < 0) {
+		fprintf(stderr, "** unable to load '%s.\n", program);
+		return;
+	}
+
+    for(sdb_t.tab = sdb_t.eh->strtab; sdb_t.tab != NULL; sdb_t.tab = sdb_t.tab->next) {
+		if(sdb_t.tab->id == sdb_t.eh->shstrndx) break;
+	}
+
+    if(sdb_t.tab == NULL) {
+		fprintf(stderr, "** section header string table not found.\n");
+        return;
+	}
+    int i;
+    for(i = 0; i < sdb_t.eh->shnum; i++) {
+        if (strcmp(&sdb_t.tab->data[sdb_t.eh->shdr[i].name], ".text") == 0) {
+            sdb_t.text_addr = sdb_t.eh->shdr[i].addr;
+            sdb_t.text_offset = sdb_t.eh->shdr[i].offset;
+            sdb_t.text_size = sdb_t.eh->shdr[i].size;
+        }
+	}
+
     char *tmp = malloc(64*sizeof(char));
     strcpy(tmp, program);
     sdb_t.p_name = tmp;
-    printf("** program \'%s\' loaded\n", sdb_t.p_name);
+    
+    // free breakpoints
+    for (i =0; i < sdb_t.n_breakpoints; i++) free(sdb_t.breakpoints[i]);
+    sdb_t.breakpoints = NULL;
+    sdb_t.n_breakpoints = 0;
+    
+    printf("** program \'%s\' loaded. entry point 0x%llx, vaddr 0x%llx, offset 0x%llx, size 0x%llx\n", 
+        sdb_t.p_name,
+        sdb_t.text_addr,
+        sdb_t.text_addr,
+        sdb_t.text_offset,
+        sdb_t.text_size);
 }
 
-void start() {
-    // free breakpoints
-    // int i;
-    // for (i =0; i < sdb_t.n_breakpoints; i++) free(sdb_t.breakpoints[i]);
-    // sdb_t.breakpoints = NULL;
-    // sdb_t.n_breakpoints = 0;
-    //
+void start(short should_print) {
+    // TODO: restart breakpoints reload
+    // 
+    sdb_t.text_base_addr = 0;
     pid_t pid ;
     if ((pid = fork()) <0 ) errquit("fork");
     if(pid == 0) {
@@ -50,7 +93,28 @@ void start() {
         if (pid >0) {
             sdb_t.p = pid; 
             sdb_t.r_state = 0;
-            printf("** pid %d\n", sdb_t.p);
+
+            //get base address
+            FILE *fp;
+            char process_map[128] = "";
+            sprintf(process_map, "/proc/%d/maps", sdb_t.p);
+            fp = fopen(process_map, "r");
+            char addr[40];
+            fscanf(fp, "%[^-]s %*[^\n]s",addr);
+            fclose(fp);
+            sdb_t.text_base_addr = strtol(addr, NULL, 16);
+
+            // breakpoints enable
+            int i;
+            for (i= 0 ; i<sdb_t.n_breakpoints;i++) {
+                sdb_t.breakpoints[i]->pid = sdb_t.p;
+                sdb_t.breakpoints[i]->addr = sdb_t.breakpoints[i]->addr + sdb_t.text_base_addr;
+                fprintf(stderr,"%p\n", sdb_t.breakpoints[i]->addr);
+                enable(sdb_t.breakpoints[i]);
+            }
+
+            if (should_print ==1)
+                fprintf(stderr, "** pid %d\n", sdb_t.p);
         }
     }
 }
@@ -78,13 +142,14 @@ void run() {
         }
     }
     if (WIFEXITED(status)) {
+        sdb_t.p =  -1;
         fprintf(stderr, "** child process %d terminated normally (code 0)\n", sdb_t.p);
     }
 }
 
 void cont() {
     if (sdb_t.r_state == 0) {
-        fprintf(stderr, "Start first\n");
+        fprintf(stderr, "Run first\n");
         return;
     }
     int status;
@@ -121,6 +186,7 @@ void cont() {
         }
     } 
     if (WIFEXITED(status)) {
+        sdb_t.p = -1;
         fprintf(stderr, "** child process %d terminated normally (code 0)\n", sdb_t.p);
     }
 }
@@ -135,17 +201,98 @@ void si() {
     waitpid(sdb_t.p, &status, 0);
 }
 
+void vmmap() {
+    if (sdb_t.p < 0) {
+        fprintf(stderr, "%016llx-%016llx %3s %llx %s\n",sdb_t.text_addr, sdb_t.text_addr+sdb_t.text_size,  "r-x",  sdb_t.text_offset, sdb_t.p_name);
+        return;
+    }
+    FILE *fp;
+    char process_map[128] = "";
+    sprintf(process_map, "/proc/%d/maps", sdb_t.p);
+    fp = fopen(process_map, "r");
+    char addr[40];
+    char mode[8];
+    char mname[128];
+    int offset;
+    while(fscanf(fp, "%s %s %d %*s %[^\n]s %*[^\n]", addr ,mode,&offset, mname) == 4) {
+        int i;
+        for (i = 0 ; addr[i] != '-' ; i++ ) ;
+        char s_addr[20];
+        char e_addr[20];
+        memset(s_addr, '0', sizeof(s_addr));
+        memset(e_addr, '0', sizeof(e_addr));
+        strncpy(s_addr+(16-i), addr, i);
+        strncpy(e_addr+(16-i), addr+i+1, i);
+        s_addr[16] = '\0';
+        e_addr[16] = '\0';
+        for (i = 0; mname[i] != ' '; i++);
+        for (; mname[i] == ' '; i++);
+        fprintf(stderr, "%s-%s %3s %d %s\n",s_addr, e_addr,  mode,  offset, mname+i);
+    }
+    fclose(fp);
+}
+
+// capstone related
+void disasm(char* addr) {
+    csh handle;
+    cs_insn  *insn;
+    char buf[64] = {0};
+    size_t count;
+    unsigned long long target_addr;
+    unsigned long long ptr;
+
+    if (sdb_t.p < 0) {
+        // no running process
+        start(0);
+    }
+
+    if (strcmp(addr, "") != 0) {
+        if (strncmp(addr, "0x", 2) == 0)
+            target_addr = strtol(addr,NULL,16);
+        else
+            target_addr = atol(addr);
+    } else {
+        target_addr = sdb_t.cur_disasm_addr;
+    }
+    target_addr += (unsigned long long ) sdb_t.text_base_addr;
+    ptr = target_addr;
+    
+    if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK ) {
+        fprintf(stderr, "Unable to start capstone\n");
+        return;
+    }
+
+    for(ptr =  target_addr; ptr <  target_addr + sizeof(buf); ptr += PEEKSIZE) {
+        long long peek;
+        peek = ptrace(PTRACE_PEEKTEXT, sdb_t.p, ptr, NULL);
+        memcpy(&buf[ptr- target_addr], &peek, PEEKSIZE);
+    }
+    if((count = cs_disasm(handle, (uint8_t*) buf, target_addr-ptr, target_addr, 0, &insn)) > 0) {
+        size_t j;
+        for (j = 0; j < count && j < 10; j++ ) {
+            if (insn[j].address >= sdb_t.text_base_addr + sdb_t.text_offset+sdb_t.text_size) break;
+            int i;
+            fprintf(stderr, "  %llx :", insn[j].address- sdb_t.text_base_addr);
+            for (i = 0; i < insn[j].size; i++) {
+                fprintf(stderr, "%2.2x ",insn[j].bytes[i]);
+            }
+            fprintf(stderr, " \t%s\t%s\n", insn[j].mnemonic, insn[j].op_str);
+        }
+
+        sdb_t.cur_disasm_addr = insn[j].address-sdb_t.text_base_addr;
+        cs_free(insn, count);
+    }
+    cs_close(&handle);
+}
+
 //for breakpoints
 void breakp(char *args) {
     void* addr = (void*)strtol(args, NULL, 16);
     breakpoint* b = new_breakpoint(sdb_t.p,  addr);
-    enable(b);
+    if(sdb_t.p >0)
+        enable(b);
     sdb_t.breakpoints = realloc(sdb_t.breakpoints, (++sdb_t.n_breakpoints)*sizeof(breakpoint*));
     sdb_t.breakpoints[sdb_t.n_breakpoints-1] = b;
-}
-
-void deletep(char *args) {
-    void* addr = (void*)strtol(args, NULL, 16);
 }
 
 breakpoint* new_breakpoint(pid_t pid, void* addr) {

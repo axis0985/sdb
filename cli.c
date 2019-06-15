@@ -21,9 +21,11 @@ void start_cli() {
         
         //fucking string process
         
-        int cmd_idx, arg_idx, arg_start ;
-        for (cmd_idx = 0 ; _CMD!= ' ' && _CMD != 0 && _CMD != 10  ; cmd_idx++) ;
-        strncpy(command,  cmd, cmd_idx);
+        int cmd_start, cmd_idx, arg_idx, arg_start ;
+        for (cmd_idx = 0 ; _CMD == ' ' ; cmd_idx++) ;
+        cmd_start = cmd_idx;
+        for (cmd_idx; _CMD!= ' ' && _CMD != 0 && _CMD != 10  ; cmd_idx++) ;
+        strncpy(command,  cmd+cmd_start, cmd_idx-cmd_start);
         for (arg_idx = 0 ; _ARG == ' ' && (arg_idx + cmd_idx) < MAX_PROMT; arg_idx++) ;
         arg_start = arg_idx;
         for (; _ARG != 0 && _ARG != 10; arg_idx++) ;
@@ -55,6 +57,16 @@ void start_cli() {
             } else {
                 printf("too few argument\n");
             }
+        } else  if (strcmp(command, "disasm") == 0|| strcmp(command, "d") == 0 ) {
+            if ( arg_start != arg_idx) {
+                disasm(CMD_ARG);
+            } else {
+                if (sdb_t.cur_disasm_addr == -1) {
+                    printf("** no addr is given\n");
+                } else {
+                    disasm("");
+                }
+            }
         } else if (strcmp(command, "set") == 0 || strcmp(command, "s") == 0 ) {
             if ( arg_start != arg_idx) {
                 char *args[2];
@@ -69,6 +81,8 @@ void start_cli() {
             } else {
                 printf("too few argument\n");
             }
+        } else if (strcmp(command, "vmmap") == 0 || strcmp(command, "m") == 0 ) {
+            vmmap();
         } else if (strcmp(command, "list") == 0 || strcmp(command, "l") == 0 ) {
             list_breakpoints();
         } else if (strcmp(command, "getregs") == 0  ) {
@@ -76,7 +90,7 @@ void start_cli() {
         } else if (strcmp(command, "q") == 0 || strcmp(command, "exit") == 0) {
             exit(0);
         }  else if (strcmp(command, "start") == 0 ) {
-            start();
+            start(1);
         } else if (strcmp(command, "run") == 0 || strcmp(command, "r") == 0){
             run();
         }else if (strcmp(command, "cont") == 0 || strcmp(command, "c") == 0){
