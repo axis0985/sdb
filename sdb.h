@@ -31,6 +31,7 @@ struct  {
     long long text_size;
     long long cur_disasm_addr; //current disasm address
     long long text_base_addr; // base address for PIE
+    int text_index;
 } sdb_t;
 
 typedef enum {

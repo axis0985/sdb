@@ -26,15 +26,25 @@ void init() {
 }
 
 void load(char *program) {
+    if (sdb_t.eh != NULL ) {
+        elf_close(sdb_t.eh);
+        sdb_t.eh = NULL;
+        // sdb_t.tab
+        sdb_t.tab = NULL;
+        elf_init();
+    }
+    fprintf(stderr, "1");
     if ((sdb_t.eh = elf_open(program)) == NULL) {
 		fprintf(stderr, "** unable to open '%s'.\n", program);
 		return;
     }
+    fprintf(stderr, "2");
 
     if(elf_load_all(sdb_t.eh) < 0) {
 		fprintf(stderr, "** unable to load '%s.\n", program);
 		return;
 	}
+    fprintf(stderr, "3");
 
     for(sdb_t.tab = sdb_t.eh->strtab; sdb_t.tab != NULL; sdb_t.tab = sdb_t.tab->next) {
 		if(sdb_t.tab->id == sdb_t.eh->shstrndx) break;
@@ -50,6 +60,7 @@ void load(char *program) {
             sdb_t.text_addr = sdb_t.eh->shdr[i].addr;
             sdb_t.text_offset = sdb_t.eh->shdr[i].offset;
             sdb_t.text_size = sdb_t.eh->shdr[i].size;
+            sdb_t.text_index = i;
         }
 	}
 
@@ -281,11 +292,6 @@ void disasm(char* addr) {
     unsigned long long target_addr;
     unsigned long long ptr;
 
-    if (sdb_t.p < 0) {
-        // no running process
-        start(0);
-    }
-
     if (strcmp(addr, "") != 0) {
         if (strncmp(addr, "0x", 2) == 0)
             target_addr = strtol(addr,NULL,16);
@@ -294,30 +300,22 @@ void disasm(char* addr) {
     } else {
         target_addr = sdb_t.cur_disasm_addr;
     }
-    if (sdb_t.text_addr == sdb_t.text_offset) //PIE?
-        target_addr += (unsigned long long ) sdb_t.text_base_addr;
     ptr = target_addr;
     
     if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK ) {
         fprintf(stderr, "Unable to start capstone\n");
         return;
     }
+    // get text segment
+    pread(sdb_t.eh->fd, buf, sizeof(buf), ptr - sdb_t.eh->entrypoint + sdb_t.eh->shdr[sdb_t.text_index].offset);
 
-    for(ptr =  target_addr; ptr <  target_addr + sizeof(buf); ptr += PEEKSIZE) {
-        long long peek;
-        peek = ptrace(PTRACE_PEEKTEXT, sdb_t.p, ptr, NULL);
-        memcpy(&buf[ptr- target_addr], &peek, PEEKSIZE);
-    }
-    if((count = cs_disasm(handle, (uint8_t*) buf, target_addr-ptr, target_addr, 0, &insn)) > 0) {
+    if((count = cs_disasm(handle, (uint8_t*) buf, sizeof(buf), target_addr, 0, &insn)) > 0) {
         size_t j;
-        for (j = 0; j < count && j < 10; j++ ) {
-            if (insn[j].address >= sdb_t.text_base_addr + sdb_t.text_offset+sdb_t.text_size ||
-                insn[j].address < sdb_t.text_base_addr + sdb_t.text_offset) break;
+        for (j = 0; j < count && j < 10; j++ ) {        
+            if (insn[j].address > sdb_t.eh->entrypoint +sdb_t.text_size ||
+                insn[j].address < sdb_t.eh->entrypoint) break;
             int i;
-            if (sdb_t.text_addr == sdb_t.text_offset) //PIE?
-                fprintf(stderr, "  %llx :", insn[j].address- sdb_t.text_base_addr);
-            else
-                fprintf(stderr, "  %lx :", insn[j].address);
+            fprintf(stderr, "  %lx :", insn[j].address);
 
             for (i = 0; i < insn[j].size; i++) {
                 fprintf(stderr, "%2.2x ",insn[j].bytes[i]);
@@ -325,7 +323,7 @@ void disasm(char* addr) {
             fprintf(stderr, " \t%s\t%s\n", insn[j].mnemonic, insn[j].op_str);
         }
 
-        sdb_t.cur_disasm_addr = insn[j].address-sdb_t.text_base_addr;
+        sdb_t.cur_disasm_addr = insn[j].address;
         cs_free(insn, count);
     }
     cs_close(&handle);
