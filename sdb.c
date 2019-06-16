@@ -22,10 +22,10 @@ void init() {
     sdb_t.text_size = 0;
     sdb_t.cur_disasm_addr =-1;
     sdb_t.text_base_addr = 0;
+    elf_init();
 }
 
 void load(char *program) {
-    elf_init();
     if ((sdb_t.eh = elf_open(program)) == NULL) {
 		fprintf(stderr, "** unable to open '%s'.\n", program);
 		return;
@@ -62,8 +62,6 @@ void load(char *program) {
     sdb_t.breakpoints = NULL;
     sdb_t.n_breakpoints = 0;
     
-    elf_close(sdb_t.eh);
-    sdb_t.eh = NULL;
     printf("** program \'%s\' loaded. entry point 0x%llx, vaddr 0x%llx, offset 0x%llx, size 0x%llx\n", 
         sdb_t.p_name,
         sdb_t.text_addr,
@@ -80,6 +78,8 @@ void start(short should_print) {
         kill(sdb_t.p, SIGKILL);
         waitpid(sdb_t.p, &status, 0);
         sdb_t.p = -1;
+        elf_close(sdb_t.eh);
+        sdb_t.eh = NULL;
     }
     sdb_t.text_base_addr = 0;
     pid_t pid ;
@@ -398,26 +398,26 @@ typedef struct {
 int n_registers = 27;
 
 const reg_descriptor reg_descriptors[27] = {
-    { rax, 0, "rax" },
-    { rbx, 3, "rbx" },
-    { rcx, 2, "rcx" },
-    { rdx, 1, "rdx" },
-    { r8, 8, "r8" },
-    { r9, 9, "r9" },
-    { r10, 10, "r10" },
-    { r11, 11, "r11" },
-    { r12, 12, "r12" },
-    { r13, 13, "r13" },
-    { r14, 14, "r14" },
-    { r15, 15, "r15" },
-    { rdi, 5, "rdi" },
-    { rsi, 4, "rsi" },
-    { rbp, 6, "rbp" },
-    { rsp, 7, "rsp" },
-    { rip, -1, "rip" },
+    { rax, 0, "RAX" },
+    { rbx, 3, "RBX" },
+    { rcx, 2, "RCX" },
+    { rdx, 1, "RDX" },
+    { r8, 8, "R8" },
+    { r9, 9, "R9" },
+    { r10, 10, "R10" },
+    { r11, 11, "R11" },
+    { r12, 12, "R12" },
+    { r13, 13, "R13" },
+    { r14, 14, "R14" },
+    { r15, 15, "R15" },
+    { rdi, 5, "RDI" },
+    { rsi, 4, "RSI" },
+    { rbp, 6, "RBP" },
+    { rsp, 7, "RSP" },
+    { rip, -1, "RIP" },
+    { eflags, 49, "FLAGS" },
     { orig_rax, -1, "orig_rax" },
     { cs, 51, "cs" },
-    { eflags, 49, "eflags" },
     { ss, 52, "ss" },
     { fs_base, 58, "fs_base" },
     { gs_base, 59, "gs_base" },
@@ -582,9 +582,12 @@ void get_reg(char* reg_name) {
 
 void get_all_regs() {
     int i;
-    for (i = 0 ; i < n_registers; i++ ) {
+    for (i = 0 ; i < 18; i++ ) {
         uint64_t val = get_register_value(reg_descriptors[i].r);
-        fprintf(stderr, "%s  %lx\t", reg_descriptors[i].name,    val);
+        if (i == 17)
+            fprintf(stderr, "%s  %016lx\t", reg_descriptors[i].name,    val);
+        else
+            fprintf(stderr, "%s  %lx\t", reg_descriptors[i].name,    val);
         if(i %4 == 3) 
             fprintf(stderr, "\n");
     }

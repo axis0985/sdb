@@ -96,6 +96,23 @@ void start_cli(char* load_program) {
             list_breakpoints();
         } else if (strcmp(command, "getregs") == 0  ) {
             get_all_regs();
+        } else if (strcmp(command, "help") == 0 || strcmp(command, "h") == 0  ) {
+            fprintf(stderr, "- break {instruction-address}: add a break point\n" \
+"- cont: continue execution\n" \
+"- delete {break-point-id}: remove a break point\n" \
+"- disasm addr: disassemble instructions in a file or a memory region\n" \
+"- dump addr [length]: dump memory content\n" \
+"- exit: terminate the debugger\n" \
+"- get reg: get a single value from a register\n" \
+"- getregs: show registers\n" \
+"- help: show this message\n" \
+"- list: list break points\n" \
+"- load {path/to/a/program}: load a program\n" \
+"- run: run the program\n" \
+"- vmmap: show memory layout\n" \
+"- set reg val: get a single value to a register\n" \
+"- si: step into instruction\n" \
+"- start: start the program and stop at the first instruction\n");
         } else if (strcmp(command, "q") == 0 || strcmp(command, "exit") == 0) {
             exit(0);
         }  else if (strcmp(command, "start") == 0 ) {
