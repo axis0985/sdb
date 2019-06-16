@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/user.h>
+#include <signal.h>
 
 void errquit(const char *msg) {
     perror(msg);
@@ -21,12 +22,12 @@ void init() {
     sdb_t.text_size = 0;
     sdb_t.cur_disasm_addr =-1;
     sdb_t.text_base_addr = 0;
-    elf_init();
 }
 
 void load(char *program) {
+    elf_init();
     if ((sdb_t.eh = elf_open(program)) == NULL) {
-		fprintf(stderr, "** unabel to open '%s'.\n", program);
+		fprintf(stderr, "** unable to open '%s'.\n", program);
 		return;
     }
 
@@ -61,6 +62,8 @@ void load(char *program) {
     sdb_t.breakpoints = NULL;
     sdb_t.n_breakpoints = 0;
     
+    elf_close(sdb_t.eh);
+    sdb_t.eh = NULL;
     printf("** program \'%s\' loaded. entry point 0x%llx, vaddr 0x%llx, offset 0x%llx, size 0x%llx\n", 
         sdb_t.p_name,
         sdb_t.text_addr,
@@ -72,6 +75,12 @@ void load(char *program) {
 void start(short should_print) {
     // TODO: restart breakpoints reload
     // 
+    if (sdb_t.p >0 ) {
+        int status;
+        kill(sdb_t.p, SIGKILL);
+        waitpid(sdb_t.p, &status, 0);
+        sdb_t.p = -1;
+    }
     sdb_t.text_base_addr = 0;
     pid_t pid ;
     if ((pid = fork()) <0 ) errquit("fork");
@@ -85,11 +94,11 @@ void start(short should_print) {
         int status;
         if (waitpid(pid, &status, 0) < 0) errquit("waitpid");
         ptrace(PTRACE_SETOPTIONS, pid, 0, PTRACE_O_EXITKILL);
-        ptrace(PTRACE_SINGLESTEP);
-        waitpid(pid, &status, 0);
-        if(WIFSTOPPED(status) == 0) {
-            printf("Something went south\n");
-        }
+        // ptrace(PTRACE_SINGLESTEP);
+        // waitpid(pid, &status, 0);
+        // if(WIFSTOPPED(status) == 0) {
+        //     printf("Something went south\n");
+        // }
         if (pid >0) {
             sdb_t.p = pid; 
             sdb_t.r_state = 0;
@@ -232,6 +241,37 @@ void vmmap() {
     fclose(fp);
 }
 
+void dump(char * addr) {
+    void* _addr = (void*)strtol(addr, NULL, 16);
+    int i; 
+    char dump_code[40] ;
+    for (i = 0 ; i < 10 ; i ++) {
+        long ret = ptrace(PTRACE_PEEKDATA, sdb_t.p, _addr, NULL);
+        if (i % 2 ==0 ) {
+            memset(dump_code, 0 , sizeof(dump_code));
+            fprintf(stderr, "%p: ", _addr);
+        }
+        // fprintf(stderr, "%016lx", ret);
+        int j;
+        for (j = 0 ; j < 8 ; j ++) {
+            long tmp = 0xffffffffffffffff;
+            tmp = tmp << (8);
+            tmp = 0xffffffffffffffff ^ tmp;
+            tmp = tmp & ret >> (j*8);
+            // tmp = tmp & ret;
+            // tmp = ret & tmp;
+            fprintf(stderr, "%2.2lx ", tmp);
+            if  (tmp >=32 && tmp <= 126)
+                dump_code[ (i%2)*8+j ] = (int) tmp;
+            else
+                dump_code[ (i%2)*8+j ] = '.';
+        }
+        _addr += 8;
+        if (i % 2 ==1 )
+            fprintf(stderr, "|%s|\n", dump_code);
+    }
+}
+
 // capstone related
 void disasm(char* addr) {
     csh handle;
@@ -254,7 +294,8 @@ void disasm(char* addr) {
     } else {
         target_addr = sdb_t.cur_disasm_addr;
     }
-    target_addr += (unsigned long long ) sdb_t.text_base_addr;
+    if (sdb_t.text_addr == sdb_t.text_offset) //PIE?
+        target_addr += (unsigned long long ) sdb_t.text_base_addr;
     ptr = target_addr;
     
     if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK ) {
@@ -270,9 +311,14 @@ void disasm(char* addr) {
     if((count = cs_disasm(handle, (uint8_t*) buf, target_addr-ptr, target_addr, 0, &insn)) > 0) {
         size_t j;
         for (j = 0; j < count && j < 10; j++ ) {
-            if (insn[j].address >= sdb_t.text_base_addr + sdb_t.text_offset+sdb_t.text_size) break;
+            if (insn[j].address >= sdb_t.text_base_addr + sdb_t.text_offset+sdb_t.text_size ||
+                insn[j].address < sdb_t.text_base_addr + sdb_t.text_offset) break;
             int i;
-            fprintf(stderr, "  %llx :", insn[j].address- sdb_t.text_base_addr);
+            if (sdb_t.text_addr == sdb_t.text_offset) //PIE?
+                fprintf(stderr, "  %llx :", insn[j].address- sdb_t.text_base_addr);
+            else
+                fprintf(stderr, "  %lx :", insn[j].address);
+
             for (i = 0; i < insn[j].size; i++) {
                 fprintf(stderr, "%2.2x ",insn[j].bytes[i]);
             }
@@ -352,26 +398,26 @@ typedef struct {
 int n_registers = 27;
 
 const reg_descriptor reg_descriptors[27] = {
-    { r15, 15, "r15" },
-    { r14, 14, "r14" },
-    { r13, 13, "r13" },
-    { r12, 12, "r12" },
-    { rbp, 6, "rbp" },
-    { rbx, 3, "rbx" },
-    { r11, 11, "r11" },
-    { r10, 10, "r10" },
-    { r9, 9, "r9" },
-    { r8, 8, "r8" },
     { rax, 0, "rax" },
+    { rbx, 3, "rbx" },
     { rcx, 2, "rcx" },
     { rdx, 1, "rdx" },
-    { rsi, 4, "rsi" },
+    { r8, 8, "r8" },
+    { r9, 9, "r9" },
+    { r10, 10, "r10" },
+    { r11, 11, "r11" },
+    { r12, 12, "r12" },
+    { r13, 13, "r13" },
+    { r14, 14, "r14" },
+    { r15, 15, "r15" },
     { rdi, 5, "rdi" },
-    { orig_rax, -1, "orig_rax" },
-    { rip, -1, "rip" },
-    { cs, 51, "cs" },
-    { rflags, 49, "eflags" },
+    { rsi, 4, "rsi" },
+    { rbp, 6, "rbp" },
     { rsp, 7, "rsp" },
+    { rip, -1, "rip" },
+    { orig_rax, -1, "orig_rax" },
+    { cs, 51, "cs" },
+    { eflags, 49, "eflags" },
     { ss, 52, "ss" },
     { fs_base, 58, "fs_base" },
     { gs_base, 59, "gs_base" },
@@ -538,6 +584,9 @@ void get_all_regs() {
     int i;
     for (i = 0 ; i < n_registers; i++ ) {
         uint64_t val = get_register_value(reg_descriptors[i].r);
-        fprintf(stderr, "%s = %ld(0x%lx)\n", reg_descriptors[i].name, val, val);
+        fprintf(stderr, "%s  %lx\t", reg_descriptors[i].name,    val);
+        if(i %4 == 3) 
+            fprintf(stderr, "\n");
     }
+    fprintf(stderr, "\n");
 }

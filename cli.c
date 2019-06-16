@@ -9,10 +9,13 @@
 #define _ARG *(cmd+cmd_idx+arg_idx)
 #define CMD_ARG cmd+cmd_idx+arg_start
 
-void start_cli() {
+void start_cli(char* load_program) {
     init();
     char *cmd =  malloc(MAX_PROMT*sizeof(char));
     char * command = malloc(MAX_PROMT*sizeof(char));
+    if (strcmp(load_program, "") != 0) {
+        load(load_program); 
+    }
     while (1) {
         memset(cmd, 0,  MAX_PROMT*sizeof(char));
         memset(command, 0,  MAX_PROMT*sizeof(char));
@@ -54,6 +57,12 @@ void start_cli() {
         } else  if (strcmp(command, "get") == 0|| strcmp(command, "g") == 0 ) {
             if ( arg_start != arg_idx) {
                 get_reg(CMD_ARG);
+            } else {
+                printf("too few argument\n");
+            }
+        } else  if (strcmp(command, "dump") == 0|| strcmp(command, "x") == 0 ) {
+            if ( arg_start != arg_idx) {
+                dump(CMD_ARG);
             } else {
                 printf("too few argument\n");
             }

@@ -1,6 +1,10 @@
 #include "cli.h"
 
 int main(int argc, char *argv[]) {
-    start_cli();
+    if (argc >1) {
+        start_cli(argv[1]);
+    } else {
+        start_cli("");
+    }
     return 0;
 }

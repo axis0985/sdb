@@ -72,6 +72,7 @@ void run();
 void cont();
 void si();
 void vmmap();
+void dump(char *addr);
 
 // capstone related
 void disasm(char* addr);

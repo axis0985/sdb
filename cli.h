@@ -3,5 +3,5 @@
 
 #define MAX_PROMT 128
 
-void start_cli();
+void start_cli(char* load_program);
 #endif
